@@ -1,0 +1,219 @@
+---
+- hosts: minecraft_server
+  gather_facts: true
+  become: true
+
+  vars_files:
+    - mc_vars.yml
+    - mc_vault.yml
+
+  vars:
+    mc_baseport_srv: 25565
+    mc_baseport_rcon: 35565
+    mc_baseport_qry: 45565
+    mc_UserName: "{{ mc_UsernamePrefix }}{{ mc_WorldName }}"
+    mc_ServerPath: "/home/{{ mc_UserName }}/{{ mc_WorldName }}_server"
+    mc_ServiceName: "MinecraftSrv_{{ mc_WorldName }}"
+    mc_serverport_srv: "{{ mc_baseport_srv + mc_PortOffset }}"
+    mc_serverport_rcon: "{{ mc_baseport_rcon + mc_PortOffset }}"
+    mc_serverport_qry: "{{ mc_baseport_qry + mc_PortOffset }}"
+
+  handlers:
+    - name: Restart Minecraft Service
+      service:
+        name: "{{ mc_ServiceName }}"
+        state: restarted
+        enabled: true
+
+    - name: Reload systemd unit configs
+      listen: Service Changed
+      systemd:
+        daemon_reload: yes
+      when: ansible_service_mgr == 'systemd'
+
+
+  pre_tasks:
+    - name: Populate service facts
+      service_facts:
+
+    # - name: Debug Services Facts
+    #   debug:
+    #     var: ansible_facts.services
+
+    - name: Shutdown Running Minecraft Server
+      when: mc_ServiceName in ansible_facts.services
+      service:
+        state: stopped
+
+
+  tasks:
+    - name: Create MC User
+      user:
+        name: "{{ mc_UserName }}"
+        comment: "Mincraft Server User ({{ mc_WorldName }})"
+        state: present
+        update_password: on_create
+        generate_ssh_key: yes
+        ssh_key_bits: 2048
+        ssh_key_file: .ssh/ansible_key
+        expires: -1
+
+    - name: Prep Minecraft server directory
+      become: true
+      become_user: "{{ mc_UserName }}"
+      file:
+        path: "{{ mc_ServerPath }}"
+        state: directory
+        mode: 0750
+
+    - name: Prep Ansible File Cache directory
+      become: true
+      become_user: "{{ mc_UserName }}"
+      file:
+        path: ~/.ansible/filecache
+        state: directory
+        mode: 0750
+
+    - name: Download Modpack Server Files
+      become: true
+      become_user: "{{ mc_UserName }}"
+      register: mc_ModpackDownload
+      get_url:
+        url: "{{ mc_ModpackURI }}"
+        checksum: "{{ mc_ModpackChecksum }}"
+        dest: ~/.ansible/filecache/serverfiles.zip
+        force: true
+
+    # - debug:
+    #     var: mc_ModpackDownload
+
+    - name: Cleanup existing server files
+      when: mc_ModpackDownload.changed # noqa 503
+      block:
+        - name: Find files to remove
+          find:
+            paths: "{{ mc_ServerPath }}"
+            patterns:
+              - "forge-*.jar"
+              - "minecraft_server.*.jar"
+              - "ServerStart.*"
+              - "1.*.json"
+              - "config/*"
+              - "mods/*"
+          register: cleanup_files
+
+        - name: Remove Server Files
+          become: true
+          become_user: "{{ mc_UserName }}"
+          file:
+            path: "{{ item.path }}"
+            state: absent
+          with_items: "{{ cleanup_files.files }}"
+      # Cleanup Block End
+
+    - name: Unpack server files
+      become: true
+      become_user: "{{ mc_UserName }}"
+      register: unpack_result
+      # unarchive:
+      #   keep_newer: yes
+      #   remote_src: true
+      #   src: ~/.ansible/filecache/serverfiles.zip
+      #   dest: ~/ServerSource
+      shell:
+        cmd: >
+          temp=$(mktemp -d)
+          && unzip -d "$temp" {{ mc_ModpackDownload.dest }}
+          && cp --recursive --update "$temp"/*/* {{ mc_ServerPath }};
+          rm -Rf "$temp"/* "$temp"
+        creates: "{{ mc_ServerPath }}/minecraft_server.*.jar"
+
+    # - name: Debug Unpack
+    #   debug:
+    #     var: unpack_result
+
+    - name: Find Forge Jar file
+      become: true
+      become_user: "{{ mc_UserName }}"
+      find:
+        patterns:
+          - "forge-*.jar"
+        paths:
+          - "{{ mc_ServerPath }}"
+        depth: 1
+      register: forge_serverjar
+
+    # - name: Debug Find
+    #   debug:
+    #     var: forge_serverjar
+
+    - name: Create Generic Jar Link for Service Usage
+      become: true
+      become_user: "{{ mc_UserName }}"
+      file:
+        src: "{{ forge_serverjar.files[0].path }}"
+        dest: "{{ mc_ServerPath }}/server.jar"
+        state: link
+
+    - name: Copy Server Properties if Not exists
+      become: true
+      become_user: "{{ mc_UserName }}"
+      template:
+        src: "files/server.properties"
+        dest: "{{ mc_ServerPath }}/server.properties"
+        backup: true
+        force: false
+
+    - name: Accept EULA
+      become: true
+      become_user: "{{ mc_UserName }}"
+      copy:
+        src: "files/eula.txt"
+        dest: "{{ mc_ServerPath }}/eula.txt"
+
+    - name: Validate serever.properties settings
+      become: true
+      become_user: "{{ mc_UserName }}"
+      lineinfile:
+        path: "{{ mc_ServerPath }}/server.properties"
+        state: present
+        regexp: "{{ item.pattern }}"
+        line: "{{ item.line }}"
+      no_log: "{{ item.nolog }}"
+      with_items:
+        - { pattern: '^level-name=*', line: "level-name={{ mc_WorldName }}", nolog: false }
+        - { pattern: '^max-players=*', line: "max-players={{ mc_MaxPlayers }}", nolog: false }
+        - { pattern: '^query.port=*', line: "query.port={{ mc_serverport_qry }}", nolog: false }
+        - { pattern: '^rcon.password=*', line: "rcon.password={{ mc_RCONPassword }}", nolog: true }
+        - { pattern: '^rcon.port=*', line: "rcon.port={{ mc_serverport_rcon }}", nolog: false }
+        - { pattern: '^server-port=*', line: "server-port={{ mc_serverport_srv }}", nolog: false }
+        - { pattern: '^motd=*', line: "motd={{ mc_WorldName }} - A Zaecraft Production", nolog: false }
+      notify: Restart Minecraft Service
+
+    #TODO: DNS Entries
+    #  A Record
+    #  SRV SRV Record
+
+    # TODO: Local firewall entries
+
+    # TODO: Make generic for different service managers
+    - name: Install Service
+      template:
+        src: files/MinecraftSrv_Template.service
+        dest: "/etc/systemd/system/{{ mc_ServiceName }}.service"
+        force: true
+        # validate: systemd-analyze verify %s
+      notify: Service Changed
+
+    - meta: flush_handlers
+
+    - name: Verify Service Enabled and Started
+      service:
+        name: "{{ mc_ServiceName }}"
+        state: started
+        enabled: true
+
+    # TODO test if server is actually up
+    # * Port test
+    # * Query
+

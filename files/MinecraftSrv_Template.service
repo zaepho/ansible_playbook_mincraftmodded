@@ -1,0 +1,29 @@
+[Unit]
+Description=Start and stop the {{ mc_WorldName }} Minecraft Server
+Wants=network.target
+After=network.target
+
+[Service]
+WorkingDirectory={{ mc_ServerPath }}
+User={{ mc_UserName }}
+Group={{ mc_UserName }}
+
+Restart=always
+RestartSec=5s
+
+Environment=MCRCON_HOST=localhost
+Environment=MCRCON_PASS={{ mc_RCONPassword }}
+Environment=MCRCON_PORT={{ mc_serverport_rcon }}
+
+ExecStart=/usr/bin/java -Xms{{ mc_JavaStartMem }} -Xmx{{ mc_JavaMaxMem }} -jar server.jar nogui
+
+ExecStop=/usr/bin/mcrcon -H ${MCRCON_HOST} -p ${MCRCON_PASS} "say SERVER SHUTTING DOWN IN 15 SECONDS..."
+ExecStop=/bin/sleep 5
+ExecStop=/usr/bin/mcrcon -H ${MCRCON_HOST} -p ${MCRCON_PASS} "say SERVER SHUTTING DOWN IN 10 SECONDS..."
+ExecStop=/bin/sleep 5
+ExecStop=/usr/bin/mcrcon -H ${MCRCON_HOST} -p ${MCRCON_PASS} "say SERVER SHUTTING DOWN IN 5 SECONDS..."
+ExecStop=/bin/sleep 5
+ExecStop=/usr/bin/mcrcon -H ${MCRCON_HOST} -p ${MCRCON_PASS} save-all stop
+
+[Install]
+WantedBy=default.target
