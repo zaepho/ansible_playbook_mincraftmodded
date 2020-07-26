@@ -1,13 +1,13 @@
 ---
 mc_UsernamePrefix: mc_
-mc_WorldName: tux
+mc_WorldName: valhelsia
 mc_BaseDNSDomain: "phoenix-labs.net"
 mc_ModpackURI: "https://media.forgecdn.net/files/3008/36/Valhelsia_SERVER-2.2.5a.zip"
 mc_ModpackChecksum: "md5:281f21222919f2bcd518d74d4e805075" # Valhelsia_SERVER-2.2.5a.zip
 # mc_ModpackURI: "https://media.forgecdn.net/files/2997/631/Valhelsia_SERVER-2.2.4.zip"
 # mc_ModpackChecksum: "md5:b70bb87f8b388616c906bf3f5bb0fe79" # Valhelsia_SERVER-2.2.4.zip
-mc_PortOffset: 3
+mc_PortOffset: 1
 mc_LevelSeed: ''
 mc_MaxPlayers: 32
 mc_JavaStartMem: 4G
-mc_JavaMaxMem: 8G
+mc_JavaMaxMem: 16G
