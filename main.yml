@@ -58,6 +58,23 @@
         ssh_key_file: .ssh/ansible_key
         expires: -1
 
+    - name: Install mcrcon for RCON usage
+      package:
+        name: mcrcon
+        state: present
+
+    - name: Prep RCON ENvironment Variables
+      lineinfile:
+        path: "/home/{{ mc_UserName }}/.bashrc"
+        state: present
+        regexp: "{{ item.pattern }}"
+        line: "{{ item.line }}"
+      no_log: "{{ item.nolog }}"
+      with_items:
+        - { pattern: '^export MCRCON_HOST=*', line: "export MCRCON_HOST=localhost", nolog: false }
+        - { pattern: '^export MCRCON_PASS=*', line: "export MCRCON_PASS={{ mc_RCONPassword }}", nolog: true }
+        - { pattern: '^export MCRCON_PORT=*', line: "export MCRCON_PORT={{ mc_serverport_rcon }}", nolog: false }
+
     - name: Prep Minecraft server directory
       become: true
       become_user: "{{ mc_UserName }}"
@@ -143,9 +160,9 @@
         depth: 1
       register: forge_serverjar
 
-    # - name: Debug Find
-    #   debug:
-    #     var: forge_serverjar
+    - name: Debug Find
+      debug:
+        var: forge_serverjar
 
     - name: Create Generic Jar Link for Service Usage
       become: true
@@ -187,7 +204,7 @@
         - { pattern: '^rcon.password=*', line: "rcon.password={{ mc_RCONPassword }}", nolog: true }
         - { pattern: '^rcon.port=*', line: "rcon.port={{ mc_serverport_rcon }}", nolog: false }
         - { pattern: '^server-port=*', line: "server-port={{ mc_serverport_srv }}", nolog: false }
-        - { pattern: '^motd=*', line: "motd={{ mc_WorldName }} - A Zaecraft Production", nolog: false }
+        #- { pattern: '^motd=*', line: "motd={{ mc_WorldName }} - A Zaecraft Production", nolog: false }
       notify: Restart Minecraft Service
 
     #TODO: DNS Entries
@@ -195,6 +212,19 @@
     #  SRV SRV Record
 
     # TODO: Local firewall entries
+    - name: Configure local Firewall rules (Server)
+      firewalld:
+        zone: public
+        port: "{{ mc_serverport_srv }}/tcp"
+        state: enabled
+        permanent: true
+        immediate: true
+
+    #- name: Configure local Firewall rules (Query)
+    #  firewalld:
+    #    port: "{{ mc_serverport_qry }}/tcp"
+    #    permanent: true
+    #    state: enabled
 
     # TODO: Make generic for different service managers
     - name: Install Service
